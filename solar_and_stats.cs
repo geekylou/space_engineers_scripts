@@ -11,6 +11,7 @@ public class Airlock
     public IMyAirVent vent_a = null;
     public IMyAirVent vent_b = null;
     public List<IMyDoor> doors = new List<IMyDoor>();
+	public List<TextPanel> panels = new List<TextPanel>();
 }
 
 public class TextPanel
@@ -18,6 +19,8 @@ public class TextPanel
     public string name = null;
     public IMyTextSurface panel;
     public int include_battery;
+	public bool b = false;
+    public RectangleF viewport;
 }
 
 
@@ -58,15 +61,38 @@ public void FindTextPanels()
         String[] line_vals = text_panel.CustomData.Split('\n')[0].Split(':');
         if (line_vals.Length>1 && line_vals[1].Equals(group_name) && line_vals[0].Equals(SCRIPT_PREFIX))
         {
-           
-           DBG = DBG + '\n' + text_panel.CustomName + " - " +  line_vals[1] + " - " + line_vals[2];
-           DBG = DBG + " - " + Convert.ToInt32(line_vals[3]);
+            bool new_airlock;
+            Airlock airlock;
 
-           TextPanel panel = new TextPanel();
-           panel.panel = text_panel;
-           panel.include_battery = Convert.ToInt32(line_vals[3]);
+            DBG = DBG + '\n' + text_panel.CustomName + " - " +  line_vals[1] + " - " + line_vals[2];
+            DBG = DBG + " - " + Convert.ToInt32(line_vals[3]);
 
-            text_panels.Add(panel);
+            TextPanel panel = new TextPanel();
+            panel.panel = text_panel;
+            panel.include_battery = Convert.ToInt32(line_vals[3]);
+
+            panel.viewport = new RectangleF(
+                (text_panel.TextureSize - text_panel.SurfaceSize) / 3f,
+                text_panel.SurfaceSize
+            );
+
+            if((panel.include_battery & 0x10) != 0)
+            {
+                DBG = DBG + " - " + line_vals[4]; 
+                new_airlock = !airlocks.TryGetValue (line_vals[4], out airlock);
+                if (new_airlock)
+                {
+                    airlock = new Airlock();
+                    airlocks.Add(line_vals[4], airlock);
+                }
+                panel.b = line_vals[5].Equals("B");
+                
+                airlock.panels.Add(panel);
+            }
+            else
+            {
+                text_panels.Add(panel);
+            }
         }
     }
 
@@ -86,7 +112,7 @@ public void FindTextPanels()
            panel.panel = text_panel.GetSurface(Convert.ToInt32(line_vals[4]));
            panel.include_battery = Convert.ToInt32(line_vals[3]);
 
-            text_panels.Add(panel);
+           text_panels.Add(panel);
         }
     }
 
@@ -258,16 +284,46 @@ public Double getSolarPower(IMySolarPanel panel)
     return pwr_out;
 }
 
-public string CheckDoors(List<IMyDoor> doors, IMyAirVent air_vent_inner, IMyAirVent air_vent_outer)
+public string CheckDoors(Airlock airlock)
 {
-   String return_string;
-   VentStatus vent_status_outer = VentStatus.Depressurized,vent_status_inner = VentStatus.Depressurized;
-   if (air_vent_inner != null) vent_status_inner = air_vent_inner.Status;
-   if (air_vent_outer != null) vent_status_outer = air_vent_outer.Status; 
+    List<IMyDoor> doors = airlock.doors;
+    IMyAirVent air_vent_inner = airlock.vent_a;
+    IMyAirVent air_vent_outer = airlock.vent_b;
 
-   return_string = vent_status_inner.ToString() + ' ' + vent_status_outer.ToString(); 
+    String return_string;
+    VentStatus vent_status_outer = VentStatus.Depressurized,vent_status_inner = VentStatus.Depressurized;
 
-   if (CheckStatus(vent_status_inner,vent_status_outer))
+    if (air_vent_inner != null && air_vent_inner.GetOxygenLevel() > 0.1) 
+    {
+        vent_status_inner = air_vent_inner.Status;
+    }
+    if (air_vent_outer != null && air_vent_outer.GetOxygenLevel() > 0.1) 
+    {
+        vent_status_outer = air_vent_outer.Status; 
+    }
+
+    return_string = vent_status_inner.ToString() + ' ' + vent_status_outer.ToString(); 
+
+    bool status = CheckStatus(vent_status_inner,vent_status_outer);
+
+    foreach(TextPanel panel in airlock.panels)
+    {
+        var frame = panel.panel.DrawFrame();
+
+        // All sprites must be added to the frame here
+        if (panel.b)
+        {
+            DrawSprites(ref frame,panel.viewport,vent_status_outer,status);
+        }
+        else
+        {
+            DrawSprites(ref frame,panel.viewport,vent_status_inner,status);
+        }
+        // We are done with the frame, send all the sprites to the text panel
+        frame.Dispose();
+    }
+
+    if (status)
     {
         foreach(IMyDoor door in doors)
         {
@@ -279,11 +335,11 @@ public string CheckDoors(List<IMyDoor> doors, IMyAirVent air_vent_inner, IMyAirV
     {
         foreach(IMyDoor door in doors)
         {
-            if (door.Open)
+            if (door.Status == DoorStatus.Open || door.Status == DoorStatus.Opening)
             {
                 door.ApplyAction("Open_Off");
             }
-            else
+            else if (door.Status == DoorStatus.Closed)
             {
                 door.ApplyAction("OnOff_Off");
             }
@@ -315,6 +371,56 @@ void UpdateLCDText(IMyTextSurface surface, string text)
 		//   	surface.FontSize = 1.0F;
 		//	    surface.Alignment = VRage.Game.GUI.TextPanel.TextAlignment.CENTER;
 		    	surface.WriteText(text);
+}
+
+// Drawing Sprites
+public void DrawSprites(ref MySpriteDrawFrame frame,RectangleF viewport,VentStatus vent_status,bool status)
+{
+    var position =  new Vector2(viewport.Size.X - 10, viewport.Size.Y/2 - 20) + viewport.Position;;
+
+    // Create our first line
+    var sprite = new MySprite()
+    {
+        Type = SpriteType.TEXT,
+        Data = vent_status.ToString(),
+        Position = position,
+        RotationOrScale = 1.5f /* 80 % of the font's default size */,
+        Color = Color.Yellow,
+        Alignment = TextAlignment.RIGHT /* Center the text on the position */,
+        FontId = "White"
+    };
+    if (vent_status == VentStatus.Depressurized)
+    {
+        sprite.Color = Color.Red;
+    }
+    else if (vent_status == VentStatus.Pressurized)
+    {
+        sprite.Color = Color.Green;
+    }
+    // Add the sprite to the frame
+    frame.Add(sprite);
+    
+    // Set up the initial position - and remember to add our viewport offset
+    position = new Vector2(viewport.Size.X/4, viewport.Size.Y/2 + viewport.Position.Y) ;
+    
+    // Create our first line
+    sprite = new MySprite()
+    {
+        Type = SpriteType.TEXTURE,
+        Data = "Cross",
+        Position = position,
+        Size = viewport.Size/2,
+        Color = Color.White,
+        Alignment = TextAlignment.CENTER /* Center the text on the position */,
+        FontId = "White"
+    };
+
+    if (status)
+    {
+        sprite.Data = "Arrow";
+    }
+    // Add the sprite to the frame
+    frame.Add(sprite);
 }
 
 public void Main(string argument, UpdateType updateSource)
@@ -430,9 +536,9 @@ public void Main(string argument, UpdateType updateSource)
         {
             text = text + reactors_text;
         }
-        foreach( KeyValuePair<string, Airlock> kvp in airlocks )
+        foreach(KeyValuePair<string, Airlock> kvp in airlocks)
         {
-            text = text + kvp.Key + "\n -- " + CheckDoors(kvp.Value.doors,kvp.Value.vent_a, kvp.Value.vent_b) + "\n";
+            text = text + kvp.Key + "\n -- " + CheckDoors(kvp.Value) + "\n";
         }
         UpdateLCDText(text_panel.panel,text);
     }    
