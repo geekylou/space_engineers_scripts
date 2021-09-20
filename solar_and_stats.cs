@@ -1,7 +1,17 @@
 String group_name = "";
 String SCRIPT_PREFIX = "PowerCTL";
 List <TextPanel> text_panels;
+Dictionary<string, Airlock> airlocks = new Dictionary<string, Airlock>();
+
 string DBG = "";
+
+public class Airlock
+{
+    public string name = null;
+    public IMyAirVent vent_a = null;
+    public IMyAirVent vent_b = null;
+    public List<IMyDoor> doors = new List<IMyDoor>();
+}
 
 public class TextPanel
 {
@@ -136,6 +146,66 @@ public void FindPanels()
     }
 }
 
+public void FindVents()
+{
+    List<IMyAirVent> blocks = new List<IMyAirVent>();
+    GridTerminalSystem.GetBlocksOfType<IMyAirVent>(blocks);
+
+    foreach(IMyAirVent vent in blocks)
+    {
+        foreach(String line in vent.CustomData.Split('\n'))
+        {
+            String[] line_vals = line.Split(':');
+            if (line_vals.Length>=3 && line_vals[1].Equals(group_name) && line_vals[0].Equals(SCRIPT_PREFIX))
+            {
+               bool new_airlock;
+               Airlock airlock;
+               DBG = DBG + '\n' + vent.CustomName + " - " +  line_vals[1] + " - " + line_vals[2];
+
+               new_airlock = !airlocks.TryGetValue (line_vals[2], out airlock);
+               if (new_airlock)
+               {
+                    airlock = new Airlock();
+                    airlock.name = line_vals[1];          
+                    airlocks.Add(line_vals[2], airlock);
+               }
+               if (line_vals[3].Equals("A"))
+               {
+                    airlock.vent_a = vent;
+               }
+               else
+               {
+                    airlock.vent_b = vent;
+               }
+            }
+        }
+    }
+}
+public void FindDoors()
+{
+    List<IMyDoor> blocks = new List<IMyDoor>();
+    GridTerminalSystem.GetBlocksOfType<IMyDoor>(blocks);
+
+    foreach(IMyDoor door in blocks)
+    {
+        String[] line_vals = door.CustomData.Split('\n')[0].Split(':');
+        if (line_vals.Length>1 && line_vals[1].Equals(group_name) && line_vals[0].Equals(SCRIPT_PREFIX))
+        {
+           bool new_airlock;
+           Airlock airlock;
+           DBG = DBG + '\n' + door.CustomName + " - " +  line_vals[1] + " - " + line_vals[2];
+
+           new_airlock = !airlocks.TryGetValue (line_vals[2], out airlock);
+           if (new_airlock)
+           {
+                airlock = new Airlock();
+                airlocks.Add(line_vals[2], airlock);
+           }
+           airlock.doors.Add(door);
+        }
+    }
+}
+
 public void Save()
 {
     // Called when the program needs to save its state. Use
@@ -166,6 +236,8 @@ public void Reset()
     FindGyros();
     FindRotors();
     FindPanels();
+    FindVents();
+    FindDoors();
 
     //rotor = GridTerminalSystem.GetBlockWithName("Rotor_Vxxx") as IMyMotorStator;
 }
@@ -184,6 +256,57 @@ public Double getSolarPower(IMySolarPanel panel)
         pwr_out = 0;
     }
     return pwr_out;
+}
+
+public string CheckDoors(List<IMyDoor> doors, IMyAirVent air_vent_inner, IMyAirVent air_vent_outer)
+{
+   String return_string;
+   VentStatus vent_status_outer = VentStatus.Depressurized,vent_status_inner = VentStatus.Depressurized;
+   if (air_vent_inner != null) vent_status_inner = air_vent_inner.Status;
+   if (air_vent_outer != null) vent_status_outer = air_vent_outer.Status; 
+
+   return_string = vent_status_inner.ToString() + ' ' + vent_status_outer.ToString(); 
+
+   if (CheckStatus(vent_status_inner,vent_status_outer))
+    {
+        foreach(IMyDoor door in doors)
+        {
+            return_string = return_string + ' ' + door.Status;
+            door.ApplyAction("OnOff_On");
+        }
+    }
+    else
+    {
+        foreach(IMyDoor door in doors)
+        {
+            if (door.Open)
+            {
+                door.ApplyAction("Open_Off");
+            }
+            else
+            {
+                door.ApplyAction("OnOff_Off");
+            }
+        }
+    }
+    return return_string;
+}
+
+public bool CheckStatus(VentStatus a, VentStatus b)
+{
+    if ((a == VentStatus.Depressurizing || a == VentStatus.Depressurized) && (b == VentStatus.Depressurizing || b == VentStatus.Depressurized))
+    {    
+        return true;
+    }
+    else if ((a == VentStatus.Pressurized) && (b == VentStatus.Pressurized))
+    {
+        return true;
+    }
+    //else if ((a == VentStatus.Pressurizing || a == VentStatus.Pressurized) && (b == VentStatus.Pressurizing || b == VentStatus.Pressurized))
+    //{
+    //    return true;
+    //}
+    return false;
 }
 
 void UpdateLCDText(IMyTextSurface surface, string text)
@@ -307,6 +430,10 @@ public void Main(string argument, UpdateType updateSource)
         {
             text = text + reactors_text;
         }
+        foreach( KeyValuePair<string, Airlock> kvp in airlocks )
+        {
+            text = text + kvp.Key + "\n -- " + CheckDoors(kvp.Value.doors,kvp.Value.vent_a, kvp.Value.vent_b) + "\n";
+        }
         UpdateLCDText(text_panel.panel,text);
-    }
+    }    
 }
