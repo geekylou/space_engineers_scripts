@@ -61,61 +61,68 @@ public void FindTextPanels()
         String[] line_vals = text_panel.CustomData.Split('\n')[0].Split(':');
         if (line_vals.Length>1 && line_vals[1].Equals(group_name) && line_vals[0].Equals(SCRIPT_PREFIX))
         {
-            bool new_airlock;
-            Airlock airlock;
-
             DBG = DBG + '\n' + text_panel.CustomName + " - " +  line_vals[1] + " - " + line_vals[2];
             DBG = DBG + " - " + Convert.ToInt32(line_vals[3]);
 
-            TextPanel panel = new TextPanel();
-            panel.panel = text_panel;
-            panel.include_battery = Convert.ToInt32(line_vals[3]);
-
-            panel.viewport = new RectangleF(
-                (text_panel.TextureSize - text_panel.SurfaceSize) / 3f,
-                text_panel.SurfaceSize
-            );
-
-            if((panel.include_battery & 0x10) != 0)
-            {
-                DBG = DBG + " - " + line_vals[4]; 
-                new_airlock = !airlocks.TryGetValue (line_vals[4], out airlock);
-                if (new_airlock)
-                {
-                    airlock = new Airlock();
-                    airlocks.Add(line_vals[4], airlock);
-                }
-                panel.b = line_vals[5].Equals("B");
-                
-                airlock.panels.Add(panel);
-            }
-            else
-            {
-                text_panels.Add(panel);
-            }
+            AddTextPanel(line_vals,text_panel);
         }
     }
 
-    List<IMyCockpit> blocks_cp = new List<IMyCockpit>();
+    List<IMyTerminalBlock> blocks_cp = new List<IMyTerminalBlock>();
     GridTerminalSystem.GetBlocksOfType<IMyCockpit>(blocks_cp);
+    HandleTextSurfaceBlocks(blocks_cp);
+    GridTerminalSystem.GetBlocksOfType<IMyButtonPanel>(blocks_cp);
+    HandleTextSurfaceBlocks(blocks_cp);
+}
 
-    foreach(IMyCockpit text_panel in blocks_cp)
+public void HandleTextSurfaceBlocks(List<IMyTerminalBlock> blocks)
+{
+    foreach(IMyTerminalBlock button_panel in blocks)
     {
-        String[] line_vals = text_panel.CustomData.Split('\n')[0].Split(':');
+        String[] line_vals = button_panel.CustomData.Split('\n')[0].Split(':');
+
+        Echo(button_panel.CustomName);        
+
         if (line_vals.Length>1 && line_vals[1].Equals(group_name) && line_vals[0].Equals(SCRIPT_PREFIX))
         {
-           
-           DBG = DBG + '\n' + text_panel.CustomName + " - " +  line_vals[1] + " - " + line_vals[2];
-           DBG = DBG + " - " +line_vals[3];
-
-           TextPanel panel = new TextPanel();
-           panel.panel = text_panel.GetSurface(Convert.ToInt32(line_vals[4]));
-           panel.include_battery = Convert.ToInt32(line_vals[3]);
-
-           text_panels.Add(panel);
+            IMyTextSurfaceProvider text_panel =  button_panel as IMyTextSurfaceProvider;
+            DBG = DBG + '\n' + button_panel.CustomName + " - " +  line_vals[1] + " - " + line_vals[2];
+            DBG = DBG + " - " +line_vals[3];
+ 
+            AddTextPanel(line_vals,text_panel.GetSurface(Convert.ToInt32(line_vals[2])));
         }
     }
+}
 
+public void AddTextPanel(String[] line_vals,IMyTextSurface text_panel)
+{
+    bool new_airlock;
+    Airlock airlock;
+    TextPanel panel = new TextPanel();
+    panel.panel = text_panel;
+    panel.include_battery = Convert.ToInt32(line_vals[3]);
+
+    panel.viewport = new RectangleF(
+        (text_panel.TextureSize - text_panel.SurfaceSize) / 3f,
+        text_panel.SurfaceSize
+    );
+    if((panel.include_battery & 0x10) != 0)
+    {
+        DBG = DBG + " - " + line_vals[4]; 
+        new_airlock = !airlocks.TryGetValue (line_vals[4], out airlock);
+        if (new_airlock)
+        {
+            airlock = new Airlock();
+            airlocks.Add(line_vals[4], airlock);
+        }
+        panel.b = line_vals[5].Equals("B");
+        
+        airlock.panels.Add(panel);
+    }
+    else
+    {
+        text_panels.Add(panel);
+    }
 }
 
 public void FindGyros()
@@ -378,6 +385,10 @@ public void DrawSprites(ref MySpriteDrawFrame frame,RectangleF viewport,VentStat
 {
     var position =  new Vector2(viewport.Size.X - 10, viewport.Size.Y/2 - 20) + viewport.Position;;
 
+    if (viewport.Size.X < 500)
+    {
+        position.Y = position.Y + 30;
+    }    
     // Create our first line
     var sprite = new MySprite()
     {
@@ -397,12 +408,20 @@ public void DrawSprites(ref MySpriteDrawFrame frame,RectangleF viewport,VentStat
     {
         sprite.Color = Color.Green;
     }
-    // Add the sprite to the frame
-    frame.Add(sprite);
     
     // Set up the initial position - and remember to add our viewport offset
-    position = new Vector2(viewport.Size.X/4, viewport.Size.Y/2 + viewport.Position.Y) ;
-    
+    position = new Vector2(viewport.Size.X/4, viewport.Size.Y/2) + viewport.Position;
+       
+    if (viewport.Size.X < 500)
+    {
+        position.X = viewport.Size.X/2 + viewport.Position.X;
+        position.Y = position.Y - 40;
+        sprite.RotationOrScale = 1.4f;
+    }
+
+    // Add the sprite to the frame
+    frame.Add(sprite);
+
     // Create our first line
     sprite = new MySprite()
     {
