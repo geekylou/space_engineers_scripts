@@ -12,6 +12,8 @@ public class Airlock
     public IMyAirVent vent_b = null;
     public List<IMyDoor> doors = new List<IMyDoor>();
 	public List<TextPanel> panels = new List<TextPanel>();
+    public VentStatus vent_status_a = VentStatus.Depressurized;
+    public VentStatus vent_status_b = VentStatus.Depressurized;
 }
 
 public class TextPanel
@@ -298,20 +300,25 @@ public string CheckDoors(Airlock airlock)
     IMyAirVent air_vent_outer = airlock.vent_b;
 
     String return_string;
-    VentStatus vent_status_outer = VentStatus.Depressurized,vent_status_inner = VentStatus.Depressurized;
 
-    if (air_vent_inner != null && air_vent_inner.GetOxygenLevel() > 0.1) 
+    if (air_vent_inner != null && air_vent_inner.IsWorking) 
     {
-        vent_status_inner = air_vent_inner.Status;
+        if (air_vent_inner.GetOxygenLevel() > 0.1)
+            airlock.vent_status_a = air_vent_inner.Status;
+        else
+            airlock.vent_status_a = VentStatus.Depressurized;
     }
-    if (air_vent_outer != null && air_vent_outer.GetOxygenLevel() > 0.1) 
+    if (air_vent_outer != null && air_vent_outer.IsWorking) 
     {
-        vent_status_outer = air_vent_outer.Status; 
+        if (air_vent_outer.GetOxygenLevel() > 0.1)
+            airlock.vent_status_b = air_vent_outer.Status; 
+        else
+            airlock.vent_status_b = VentStatus.Depressurized;
     }
 
-    return_string = vent_status_inner.ToString() + ' ' + vent_status_outer.ToString(); 
+    return_string = airlock.vent_status_a.ToString() + ' ' + airlock.vent_status_b.ToString(); 
 
-    bool status = CheckStatus(vent_status_inner,vent_status_outer);
+    bool status = CheckStatus(airlock.vent_status_a,airlock.vent_status_b);
 
     foreach(TextPanel panel in airlock.panels)
     {
@@ -320,11 +327,11 @@ public string CheckDoors(Airlock airlock)
         // All sprites must be added to the frame here
         if (panel.b)
         {
-            DrawSprites(ref frame,panel.viewport,vent_status_outer,status);
+            DrawSprites(ref frame,panel.viewport,airlock.vent_status_b,status);
         }
         else
         {
-            DrawSprites(ref frame,panel.viewport,vent_status_inner,status);
+            DrawSprites(ref frame,panel.viewport,airlock.vent_status_a,status);
         }
         // We are done with the frame, send all the sprites to the text panel
         frame.Dispose();
