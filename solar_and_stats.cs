@@ -2,8 +2,16 @@ String group_name = "";
 String SCRIPT_PREFIX = "PowerCTL";
 List <TextPanel> text_panels;
 Dictionary<string, Airlock> airlocks = new Dictionary<string, Airlock>();
+//Dictionary<IMyGasTank>
+
 
 string DBG = "";
+
+public class GasTank
+{
+    public DateTime prev_gastank_time;
+    public Double prev_gastank_amount;
+}
 
 public class Airlock
 {
@@ -28,7 +36,7 @@ public class TextPanel
 
 bool scanning = true;
 int stop_scanning = 0;
-Double prev_power = 0;
+float prev_power = 0;
 int panels = 8;
 IMyMotorStator rotor = null;
 IMyGyro gyro = null;
@@ -81,17 +89,18 @@ public void HandleTextSurfaceBlocks(List<IMyTerminalBlock> blocks)
 {
     foreach(IMyTerminalBlock button_panel in blocks)
     {
-        String[] line_vals = button_panel.CustomData.Split('\n')[0].Split(':');
-
-        Echo(button_panel.CustomName);        
-
-        if (line_vals.Length>1 && line_vals[1].Equals(group_name) && line_vals[0].Equals(SCRIPT_PREFIX))
+        String[] lines = button_panel.CustomData.Split('\n');
+        foreach(String line in lines)
         {
-            IMyTextSurfaceProvider text_panel =  button_panel as IMyTextSurfaceProvider;
-            DBG = DBG + '\n' + button_panel.CustomName + " - " +  line_vals[1] + " - " + line_vals[2];
-            DBG = DBG + " - " +line_vals[3];
- 
-            AddTextPanel(line_vals,text_panel.GetSurface(Convert.ToInt32(line_vals[2])));
+            String[] line_vals = line.Split(':');
+            if (line_vals.Length>1 && line_vals[1].Equals(group_name) && line_vals[0].Equals(SCRIPT_PREFIX))
+            {
+                IMyTextSurfaceProvider text_panel =  button_panel as IMyTextSurfaceProvider;
+                DBG = DBG + '\n' + button_panel.CustomName + " - " +  line_vals[1] + " - " + line_vals[2];
+                DBG = DBG + " - " +line_vals[3];
+    
+                AddTextPanel(line_vals,text_panel.GetSurface(Convert.ToInt32(line_vals[2])));
+            }
         }
     }
 }
@@ -388,6 +397,71 @@ void UpdateLCDText(IMyTextSurface surface, string text)
 }
 
 // Drawing Sprites
+public void DrawBar(string type,double ratio, ref MySpriteDrawFrame frame,Vector2 base_position,RectangleF viewport,Color color)
+{
+    var scale = new Vector2(viewport.Width/500,viewport.Width/500);
+    var position =  ((new Vector2(460, 35) + base_position) * scale) + viewport.Position;
+
+    // Create our first line
+    var sprite = new MySprite()
+    {
+        Type = SpriteType.TEXT,
+        Data = ((int)(ratio * 100)).ToString(),
+        Position = position,
+        RotationOrScale = 1f * scale.X,
+        Color = color,
+        Alignment = TextAlignment.LEFT /* Center the text on the position */,
+        FontId = "White"
+    };
+    // Add the sprite to the frame
+    frame.Add(sprite);
+    
+    // Set up the initial position - and remember to add our viewport offset
+    position = ((new Vector2(20, 50)  + base_position) * scale) + viewport.Position;
+    
+    // Create our first line
+    sprite = new MySprite()
+    {
+        Type = SpriteType.TEXTURE,
+        Data = type,
+        Position = position,
+        Size = new Vector2(50,50) * scale,
+        Color = color,
+        Alignment = TextAlignment.LEFT /* Center the text on the position */,
+        FontId = "White"
+    };
+    // Add the sprite to the frame
+    frame.Add(sprite);
+
+    position = ((new Vector2(70, 50)  + base_position) * scale) + viewport.Position;;
+    sprite = new MySprite()
+    {
+        Type = SpriteType.TEXTURE,
+        Data = "SquareSimple",
+        Position = position,
+        Size = new Vector2(380,30) * scale,
+        Color = new Color(20,20,20),
+        Alignment = TextAlignment.LEFT /* Center the text on the position */,
+        FontId = "White"
+    };
+    // Add the sprite to the frame
+    frame.Add(sprite);
+
+    sprite = new MySprite()
+    {
+        Type = SpriteType.TEXTURE,
+        Data = "SquareSimple",
+        Position = position,
+        Size = new Vector2((float)(380*ratio),30) * scale,
+        Color = color,
+        Alignment = TextAlignment.LEFT /* Center the text on the position */,
+        FontId = "White"
+    };
+    // Add the sprite to the frame
+    frame.Add(sprite);
+}
+
+// Drawing Sprites
 public void DrawSprites(ref MySpriteDrawFrame frame,RectangleF viewport,VentStatus vent_status,bool status)
 {
     var position =  new Vector2(viewport.Size.X - 10, viewport.Size.Y/2 - 20) + viewport.Position;;
@@ -461,7 +535,7 @@ public void Main(string argument, UpdateType updateSource)
         scanning = true;
     }
 
-    Double pwr_out = getSolarPower(panel);// Convert.ToDouble(text_out);
+    float pwr_out = panel.CurrentOutput;// Convert.ToDouble(text_out);
 
     if (stop_scanning > 0)
     {
@@ -497,10 +571,14 @@ public void Main(string argument, UpdateType updateSource)
     List<IMyBatteryBlock> blocks = new List<IMyBatteryBlock>();
     GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(blocks);
     
+    float current_stored_power = 0, max_stored_power = 0;
+
     foreach(IMyBatteryBlock battery in blocks)
     {
-        if (battery.CubeGrid == Me.CubeGrid) 
+        if (battery.CubeGrid == Me.CubeGrid) {
             battery_text = battery_text + battery.CustomName + " - " +(battery.DetailedInfo.Split('\n')[6]) + '\n';
+        current_stored_power += battery.CurrentStoredPower;
+        max_stored_power += battery.MaxStoredPower; }
     }
 
     String tanks_text = "\nTanks\n-----\n";
@@ -534,13 +612,27 @@ public void Main(string argument, UpdateType updateSource)
 
     if (rotor != null) solar_text = "Rotor- Pitch:" +  (rotor.Angle / (float)Math.PI * 180f) + " Power:" + rotor.GetValueFloat("Velocity") + "\n";
     if (gyro != null) solar_text = "Rotor- Gyro:" +  gyro.Pitch + " ";
-    solar_text = solar_text +  "Solar: "+pwr_out*panels +" kW\n";
+    solar_text = solar_text +  "Solar: "+pwr_out*panels*1000 +" kW\n";
 
     IMyTextSurface mesurface1 = Me.GetSurface(0);
     UpdateLCDText(mesurface1,solar_text +stop_scanning + DBG );
 
     foreach(TextPanel text_panel in text_panels)
     {
+        if ((text_panel.include_battery & 32) != 0)
+        {
+            var frame = text_panel.panel.DrawFrame();
+
+            // All sprites must be added to the frame here
+            //DrawSprites(ref frame,panel.viewport);
+
+            DrawBar("IconHydrogen",0.25,ref frame,new Vector2(0,10),text_panel.viewport,text_panel.panel.FontColor);
+            DrawBar("IconOxygen",0.50,ref frame,new Vector2(0,60),text_panel.viewport,text_panel.panel.FontColor);
+            DrawBar("IconEnergy",(current_stored_power/max_stored_power),ref frame,new Vector2(0,110),text_panel.viewport,text_panel.panel.FontColor);
+            DrawBar("MyObjectBuilder_Ingot/Uranium",1.0,ref frame,new Vector2(0,160),text_panel.viewport,text_panel.panel.FontColor);
+            // We are done with the frame, send all the sprites to the text panel
+            frame.Dispose();
+        }
         string text = "";
         if ((text_panel.include_battery & 2) != 0)
         {
@@ -548,7 +640,7 @@ public void Main(string argument, UpdateType updateSource)
         }
         if ((text_panel.include_battery & 1) != 0)
         {
-            text = text + "\nBattery\n---------\n"+ battery_text;
+            text = text + "\nBattery\n--------- "+current_stored_power.ToString()+","+max_stored_power.ToString()+"\n"+ battery_text;
         }
         else
         {
