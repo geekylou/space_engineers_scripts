@@ -412,21 +412,38 @@ void UpdateLCDText(IMyTextSurface surface, string text)
 }
 
 // Drawing Sprites
-public void DrawText(string text,ref MySpriteDrawFrame frame,Vector2 base_position,RectangleF viewport,Color color)
+public void DrawText(string text,ref MySpriteDrawFrame frame,Vector2 base_position,RectangleF viewport,Color color, Color background)
 {
     var scale = new Vector2(viewport.Width/500,viewport.Width/500);
-    var position =  ((new Vector2(20, 35) + base_position) * scale) + viewport.Position;
+    var position =  ((new Vector2(0, 52) + base_position) * scale) + viewport.Position;
+    MySprite sprite;
+
+    if (background != null)
+    {
+    sprite = new MySprite()
+    {
+        Type = SpriteType.TEXTURE,
+        Data = "SquareSimple",
+        Position = position,
+        Size = new Vector2(viewport.Width,45 * scale.Y),
+        Color = background,
+        Alignment = TextAlignment.LEFT /* Center the text on the position */,
+        FontId = "White"
+    };
+    frame.Add(sprite);
+    }
+    position =  ((new Vector2(20, 35) + base_position) * scale) + viewport.Position;
 
     // Create our first line
-    var sprite = new MySprite()
+    sprite = new MySprite()
     {
         Type = SpriteType.TEXT,
         Data = text,
         Position = position,
-        RotationOrScale = 1f * scale.X,
+        RotationOrScale = 1.2f * scale.X,
         Color = color,
         Alignment = TextAlignment.LEFT /* Center the text on the position */,
-        FontId = "White"
+        FontId = "DEBUG"
     };
     // Add the sprite to the frame
     frame.Add(sprite);
@@ -703,14 +720,14 @@ public void Main(string argument, UpdateType updateSource)
             var frame = text_panel.panel.DrawFrame();
 
             // All sprites must be added to the frame here
-            //DrawSprites(ref frame,panel.viewport);
+            DrawText("Power/Ox Time:"+DateTime.Now.ToString("HH:mm"),ref frame,new Vector2(0,10),text_panel.viewport,text_panel.panel.ScriptBackgroundColor,text_panel.panel.ScriptForegroundColor);
 
-            DrawBar("IconHydrogen",(current_stored_hydrogen/max_stored_hydrogen),ref frame,new Vector2(0,10),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
-            DrawText(current_hydrogen_time,ref frame,new Vector2(0,60),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawBar("IconHydrogen",(current_stored_hydrogen/max_stored_hydrogen),ref frame,new Vector2(0,60),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawText(current_hydrogen_time,ref frame,new Vector2(0,110),text_panel.viewport,text_panel.panel.ScriptForegroundColor,Color.Black);
 
-            DrawBar("IconOxygen",(current_stored_oxygen/max_stored_oxygen),ref frame,new Vector2(0,110),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
-            DrawBar("IconEnergy",(current_stored_power/max_stored_power),ref frame,new Vector2(0,160),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
-            DrawBar("MyObjectBuilder_Ingot/Uranium",current_uranium/100,ref frame,new Vector2(0,210),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawBar("IconOxygen",(current_stored_oxygen/max_stored_oxygen),ref frame,new Vector2(0,160),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawBar("IconEnergy",(current_stored_power/max_stored_power),ref frame,new Vector2(0,210),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawBar("MyObjectBuilder_Ingot/Uranium",current_uranium/100,ref frame,new Vector2(0,260),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
             // We are done with the frame, send all the sprites to the text panel
             frame.Dispose();
         }
@@ -735,10 +752,11 @@ public void Main(string argument, UpdateType updateSource)
         {
             text = text + reactors_text;
         }
-        /*foreach(KeyValuePair<string, Airlock> kvp in airlocks)
+        foreach(KeyValuePair<string, Airlock> kvp in airlocks)
         {
-            text = text + kvp.Key + "\n -- " + CheckDoors(kvp.Value) + "\n";
-        }*/
+            //text = text + kvp.Key + "\n -- " + 
+CheckDoors(kvp.Value);// + "\n";
+        }
         UpdateLCDText(text_panel.panel,text);
     }    
 }
