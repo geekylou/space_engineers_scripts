@@ -4,14 +4,12 @@ List <TextPanel> text_panels;
 Dictionary<string, Airlock> airlocks = new Dictionary<string, Airlock>();
 //Dictionary<IMyGasTank>
 
+TimeSpan UPDATE_INTERVAL = TimeSpan.FromSeconds(5.0);
+DateTime prev_time = DateTime.UtcNow;
+float prev_hydrogen;
+string current_hydrogen_time = "***";
 
 string DBG = "";
-
-public class GasTank
-{
-    public DateTime prev_gastank_time;
-    public Double prev_gastank_amount;
-}
 
 public class Airlock
 {
@@ -19,7 +17,7 @@ public class Airlock
     public IMyAirVent vent_a = null;
     public IMyAirVent vent_b = null;
     public List<IMyDoor> doors = new List<IMyDoor>();
-	public List<TextPanel> panels = new List<TextPanel>();
+    public List<TextPanel> panels = new List<TextPanel>();
     public VentStatus vent_status_a = VentStatus.Depressurized;
     public VentStatus vent_status_b = VentStatus.Depressurized;
 }
@@ -286,6 +284,23 @@ public void Reset()
     //rotor = GridTerminalSystem.GetBlockWithName("Rotor_Vxxx") as IMyMotorStator;
 }
 
+public string formatTimeSpan(TimeSpan timespan)
+{
+    if (timespan.Days > 0)
+    {
+        return Math.Round(timespan.TotalDays,1).ToString() + " days";
+    }
+    if (timespan.Hours > 0)
+    {
+        return Math.Round(timespan.TotalHours,1).ToString() + " hours";
+    }
+    if (timespan.Minutes > 0)
+    {
+        return Math.Round(timespan.TotalMinutes,1).ToString() + " minutes";
+    }
+    return Math.Round(timespan.TotalSeconds).ToString() + " seconds";
+}
+
 public Double getSolarPower(IMySolarPanel panel)
 {
     if (panel == null)
@@ -397,6 +412,26 @@ void UpdateLCDText(IMyTextSurface surface, string text)
 }
 
 // Drawing Sprites
+public void DrawText(string text,ref MySpriteDrawFrame frame,Vector2 base_position,RectangleF viewport,Color color)
+{
+    var scale = new Vector2(viewport.Width/500,viewport.Width/500);
+    var position =  ((new Vector2(20, 35) + base_position) * scale) + viewport.Position;
+
+    // Create our first line
+    var sprite = new MySprite()
+    {
+        Type = SpriteType.TEXT,
+        Data = text,
+        Position = position,
+        RotationOrScale = 1f * scale.X,
+        Color = color,
+        Alignment = TextAlignment.LEFT /* Center the text on the position */,
+        FontId = "White"
+    };
+    // Add the sprite to the frame
+    frame.Add(sprite);
+}
+
 public void DrawBar(string type,double ratio, ref MySpriteDrawFrame frame,Vector2 base_position,RectangleF viewport,Color color)
 {
     var scale = new Vector2(viewport.Width/500,viewport.Width/500);
@@ -440,12 +475,14 @@ public void DrawBar(string type,double ratio, ref MySpriteDrawFrame frame,Vector
         Data = "SquareSimple",
         Position = position,
         Size = new Vector2(380,30) * scale,
-        Color = new Color(20,20,20),
+        Color = new Color(color.R/4,color.G/4,color.B/4),
         Alignment = TextAlignment.LEFT /* Center the text on the position */,
         FontId = "White"
     };
     // Add the sprite to the frame
     frame.Add(sprite);
+
+    if (ratio > 1.0) ratio = 1.0;
 
     sprite = new MySprite()
     {
@@ -572,6 +609,9 @@ public void Main(string argument, UpdateType updateSource)
     GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(blocks);
     
     float current_stored_power = 0, max_stored_power = 0;
+    float current_stored_oxygen = 0, max_stored_oxygen = 0;
+    float current_stored_hydrogen = 0, max_stored_hydrogen = 0;
+    float current_uranium = 0;
 
     foreach(IMyBatteryBlock battery in blocks)
     {
@@ -589,9 +629,45 @@ public void Main(string argument, UpdateType updateSource)
     foreach(IMyGasTank tank in blocks_tanks)
     {
         if (tank.CubeGrid == Me.CubeGrid)
-        tanks_text = tanks_text + tank.CustomName + " - " +Math.Round(tank.FilledRatio*100,1) + "% - " + Math.Round(tank.Capacity) + '\n';
+        {
+            if (tank.BlockDefinition.SubtypeId.Contains("Hydro"))
+            {
+                max_stored_hydrogen += tank.Capacity;
+                current_stored_hydrogen += (float)(tank.Capacity * tank.FilledRatio);
+            }
+            else
+            {
+                max_stored_oxygen += tank.Capacity;
+                current_stored_oxygen += (float)(tank.Capacity * tank.FilledRatio);
+            }
+            tanks_text = tanks_text + tank.CustomName + " - " +Math.Round(tank.FilledRatio*100,1) + "% - " + Math.Round(tank.Capacity) + '\n';
+        }
     }
 
+    // Hydrogen usage.
+    {
+        DateTime now = DateTime.UtcNow;
+        TimeSpan timespan = now - prev_time;
+        
+        if (timespan > UPDATE_INTERVAL)
+        {
+            double hydrogen_used_per_second = (prev_hydrogen - current_stored_hydrogen) / timespan.TotalSeconds; 
+
+            if (hydrogen_used_per_second > 0)
+            {
+                TimeSpan time_remaining = TimeSpan.FromSeconds(current_stored_hydrogen / hydrogen_used_per_second);
+
+                current_hydrogen_time = formatTimeSpan(time_remaining);
+            }
+            else
+            {
+                current_hydrogen_time = "---";
+            }
+            prev_hydrogen = current_stored_hydrogen;
+            prev_time = now;
+        }
+        tanks_text = tanks_text + current_hydrogen_time;
+    }
     String reactors_text = "\nReactors\n-----\n";
 
     List<IMyReactor> blocks_reactors = new List<IMyReactor>();
@@ -603,7 +679,10 @@ public void Main(string argument, UpdateType updateSource)
         {
             reactors_text = reactors_text + reactor.CustomName + " - " + reactor.DetailedInfo.Split('\n')[2]  + '\n';
             if (reactor.GetInventory(0).GetItemAt(0).HasValue)
+            {
+                current_uranium += (float)reactor.GetInventory(0).GetItemAt(0).Value.Amount;
                 reactors_text = reactors_text + " - " + reactor.GetInventory(0).GetItemAt(0).Value.Amount +  '\n';
+            }
             else reactors_text = reactors_text + " * Warning no fuel!";
         }
     }
@@ -626,10 +705,12 @@ public void Main(string argument, UpdateType updateSource)
             // All sprites must be added to the frame here
             //DrawSprites(ref frame,panel.viewport);
 
-            DrawBar("IconHydrogen",0.25,ref frame,new Vector2(0,10),text_panel.viewport,text_panel.panel.FontColor);
-            DrawBar("IconOxygen",0.50,ref frame,new Vector2(0,60),text_panel.viewport,text_panel.panel.FontColor);
-            DrawBar("IconEnergy",(current_stored_power/max_stored_power),ref frame,new Vector2(0,110),text_panel.viewport,text_panel.panel.FontColor);
-            DrawBar("MyObjectBuilder_Ingot/Uranium",1.0,ref frame,new Vector2(0,160),text_panel.viewport,text_panel.panel.FontColor);
+            DrawBar("IconHydrogen",(current_stored_hydrogen/max_stored_hydrogen),ref frame,new Vector2(0,10),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawText(current_hydrogen_time,ref frame,new Vector2(0,60),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+
+            DrawBar("IconOxygen",(current_stored_oxygen/max_stored_oxygen),ref frame,new Vector2(0,110),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawBar("IconEnergy",(current_stored_power/max_stored_power),ref frame,new Vector2(0,160),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawBar("MyObjectBuilder_Ingot/Uranium",current_uranium/100,ref frame,new Vector2(0,210),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
             // We are done with the frame, send all the sprites to the text panel
             frame.Dispose();
         }
@@ -640,7 +721,7 @@ public void Main(string argument, UpdateType updateSource)
         }
         if ((text_panel.include_battery & 1) != 0)
         {
-            text = text + "\nBattery\n--------- "+current_stored_power.ToString()+","+max_stored_power.ToString()+"\n"+ battery_text;
+            text = text + "\nBattery\n--------- "+"\n"+ battery_text;
         }
         else
         {
@@ -654,10 +735,10 @@ public void Main(string argument, UpdateType updateSource)
         {
             text = text + reactors_text;
         }
-        foreach(KeyValuePair<string, Airlock> kvp in airlocks)
+        /*foreach(KeyValuePair<string, Airlock> kvp in airlocks)
         {
             text = text + kvp.Key + "\n -- " + CheckDoors(kvp.Value) + "\n";
-        }
+        }*/
         UpdateLCDText(text_panel.panel,text);
     }    
 }
