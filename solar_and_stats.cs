@@ -93,6 +93,7 @@ public void HandleTextSurfaceBlocks(List<IMyTerminalBlock> blocks)
             String[] line_vals = line.Split(':');
             if (line_vals.Length>1 && line_vals[1].Equals(group_name) && line_vals[0].Equals(SCRIPT_PREFIX))
             {
+                Echo(button_panel.CustomName);
                 IMyTextSurfaceProvider text_panel =  button_panel as IMyTextSurfaceProvider;
                 DBG = DBG + '\n' + button_panel.CustomName + " - " +  line_vals[1] + " - " + line_vals[2];
                 DBG = DBG + " - " +line_vals[3];
@@ -111,8 +112,12 @@ public void AddTextPanel(String[] line_vals,IMyTextSurface text_panel)
     panel.panel = text_panel;
     panel.include_battery = Convert.ToInt32(line_vals[3]);
 
+    Echo(text_panel.TextureSize.ToString());
+    Echo(text_panel.SurfaceSize.ToString());
+
+
     panel.viewport = new RectangleF(
-        (text_panel.TextureSize - text_panel.SurfaceSize) / 3f,
+        (text_panel.TextureSize - text_panel.SurfaceSize) / 2f,
         text_panel.SurfaceSize
     );
     if((panel.include_battery & 0x10) != 0)
@@ -414,8 +419,8 @@ void UpdateLCDText(IMyTextSurface surface, string text)
 // Drawing Sprites
 public void DrawText(string text,ref MySpriteDrawFrame frame,Vector2 base_position,RectangleF viewport,Color color, Color background)
 {
-    var scale = new Vector2(viewport.Width/500,viewport.Width/500);
-    var position =  ((new Vector2(0, 52) + base_position) * scale) + viewport.Position;
+    var scale = new Vector2(viewport.Width/500,viewport.Height/500);
+    var position =  ((new Vector2(0, 22) + base_position) * scale) + viewport.Position;
     MySprite sprite;
 
     if (background != null)
@@ -432,7 +437,7 @@ public void DrawText(string text,ref MySpriteDrawFrame frame,Vector2 base_positi
     };
     frame.Add(sprite);
     }
-    position =  ((new Vector2(20, 35) + base_position) * scale) + viewport.Position;
+    position =  ((new Vector2(20, 2) + base_position) * scale) + viewport.Position;
 
     // Create our first line
     sprite = new MySprite()
@@ -440,7 +445,7 @@ public void DrawText(string text,ref MySpriteDrawFrame frame,Vector2 base_positi
         Type = SpriteType.TEXT,
         Data = text,
         Position = position,
-        RotationOrScale = 1.2f * scale.X,
+        RotationOrScale = 1.5f * Math.Min(scale.X,scale.Y),
         Color = color,
         Alignment = TextAlignment.LEFT /* Center the text on the position */,
         FontId = "DEBUG"
@@ -451,8 +456,8 @@ public void DrawText(string text,ref MySpriteDrawFrame frame,Vector2 base_positi
 
 public void DrawBar(string type,double ratio, ref MySpriteDrawFrame frame,Vector2 base_position,RectangleF viewport,Color color)
 {
-    var scale = new Vector2(viewport.Width/500,viewport.Width/500);
-    var position =  ((new Vector2(460, 35) + base_position) * scale) + viewport.Position;
+    var scale = new Vector2(viewport.Width/500,viewport.Height/500);
+    var position =  ((new Vector2(460, 2) + base_position) * scale) + viewport.Position;
 
     // Create our first line
     var sprite = new MySprite()
@@ -469,7 +474,7 @@ public void DrawBar(string type,double ratio, ref MySpriteDrawFrame frame,Vector
     frame.Add(sprite);
     
     // Set up the initial position - and remember to add our viewport offset
-    position = ((new Vector2(20, 50)  + base_position) * scale) + viewport.Position;
+    position = ((new Vector2(20, 20)  + base_position) * scale) + viewport.Position;
     
     // Create our first line
     sprite = new MySprite()
@@ -485,7 +490,7 @@ public void DrawBar(string type,double ratio, ref MySpriteDrawFrame frame,Vector
     // Add the sprite to the frame
     frame.Add(sprite);
 
-    position = ((new Vector2(70, 50)  + base_position) * scale) + viewport.Position;;
+    position = ((new Vector2(70, 20)  + base_position) * scale) + viewport.Position;;
     sprite = new MySprite()
     {
         Type = SpriteType.TEXTURE,
@@ -676,6 +681,12 @@ public void Main(string argument, UpdateType updateSource)
 
                 current_hydrogen_time = formatTimeSpan(time_remaining);
             }
+            else if (hydrogen_used_per_second < 0)
+            {
+                TimeSpan time_remaining = TimeSpan.FromSeconds((max_stored_hydrogen - current_stored_hydrogen) / hydrogen_used_per_second);
+                current_hydrogen_time = formatTimeSpan(-time_remaining) + " till full";
+            }
+
             else
             {
                 current_hydrogen_time = "---";
@@ -720,14 +731,14 @@ public void Main(string argument, UpdateType updateSource)
             var frame = text_panel.panel.DrawFrame();
 
             // All sprites must be added to the frame here
-            DrawText("Power/Ox Time:"+DateTime.Now.ToString("HH:mm"),ref frame,new Vector2(0,10),text_panel.viewport,text_panel.panel.ScriptBackgroundColor,text_panel.panel.ScriptForegroundColor);
+            DrawText("Power/Ox Time:"+DateTime.Now.ToString("HH:mm"),ref frame,new Vector2(0,0),text_panel.viewport,text_panel.panel.ScriptBackgroundColor,text_panel.panel.ScriptForegroundColor);
 
-            DrawBar("IconHydrogen",(current_stored_hydrogen/max_stored_hydrogen),ref frame,new Vector2(0,60),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
-            DrawText(current_hydrogen_time,ref frame,new Vector2(0,110),text_panel.viewport,text_panel.panel.ScriptForegroundColor,Color.Black);
+            DrawBar("IconHydrogen",(current_stored_hydrogen/max_stored_hydrogen),ref frame,new Vector2(0,50),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawText(current_hydrogen_time,ref frame,new Vector2(0,100),text_panel.viewport,text_panel.panel.ScriptForegroundColor,Color.Black);
 
-            DrawBar("IconOxygen",(current_stored_oxygen/max_stored_oxygen),ref frame,new Vector2(0,160),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
-            DrawBar("IconEnergy",(current_stored_power/max_stored_power),ref frame,new Vector2(0,210),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
-            DrawBar("MyObjectBuilder_Ingot/Uranium",current_uranium/100,ref frame,new Vector2(0,260),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawBar("IconOxygen",(current_stored_oxygen/max_stored_oxygen),ref frame,new Vector2(0,150),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawBar("IconEnergy",(current_stored_power/max_stored_power),ref frame,new Vector2(0,200),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
+            DrawBar("MyObjectBuilder_Ingot/Uranium",current_uranium/100,ref frame,new Vector2(0,250),text_panel.viewport,text_panel.panel.ScriptForegroundColor);
             // We are done with the frame, send all the sprites to the text panel
             frame.Dispose();
         }
